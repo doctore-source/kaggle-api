@@ -1,0 +1,30 @@
+kagglehub le kernels output jamiharju/notebook4be7883325 -p /path/to/dest
+# Create virtual environment
+python -m venv venv
+
+# Activate virtual environment
+source venv/bin/activate  # Linux/Mac
+# or
+.\venv\Scripts\activate  # Windows
+
+# Install required packages
+pip install kaggle pandas numpy
+Run Kaggle command to download the dataset
+import os
+
+# Set destination directory
+DEST_DIR = "/path/to/dest"  # Change this to your actual path
+
+# Ensure the destination exists
+os.makedirs(DEST_DIR, exist_ok=True)
+
+# Download the dataset using Kaggle API
+kaggle_command = f"kaggle kernels output jamiharju/dat-data69 -p {DEST_DIR}"
+try:
+    result = os.system(kaggle_command)
+    if result == 0:
+        print("Dataset downloaded successfully!")
+    else:
+        print("Error downloading dataset")
+except Exception as e:
+    print(f"An error occurred: {e}")
