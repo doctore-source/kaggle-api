@@ -1,0 +1,114 @@
+pip install flask dash pandas openpyxl
+import os
+import sqlite3
+import pandas as pd
+from flask import Flask, send_file, render_template_string
+from dash import Dash, dcc, html
+import plotly.express as px
+
+# ------------------ Configuration ------------------ #
+DB_FILE = "sports_betting.db"
+EXCEL_FILE = "sports_betting_data.xlsx"
+
+# ------------------ Flask Application ------------------ #
+app = Flask(__name__)
+app.config['SECRET_KEY'] = 'secret!'
+
+def export_data_to_excel():
+    """Export Matches, Players, and Odds tables from SQLite DB to an Excel file."""
+    conn = sqlite3.connect(DB_FILE)
+    df_matches = pd.read_sql("SELECT * FROM Matches", conn)
+    df_players = pd.read_sql("SELECT * FROM Players", conn)
+    df_odds = pd.read_sql("SELECT * FROM Odds", conn)
+    conn.close()
+    
+    with pd.ExcelWriter(EXCEL_FILE, engine='openpyxl') as writer:
+        df_matches.to_excel(writer, sheet_name="Matches", index=False)
+        df_players.to_excel(writer, sheet_name="Players", index=False)
+        df_odds.to_excel(writer, sheet_name="Odds", index=False)
+    
+    return EXCEL_FILE
+
+@app.route("/")
+def home():
+    html_str = """
+    <html>
+      <head>
+        <title>Evolve-Doctore Dashboard</title>
+      </head>
+      <body style="font-family: Arial, sans-serif; padding: 20px;">
+        <h1>Evolve-Doctore Dashboard</h1>
+        <p style="font-size: 12px; text-align: center;">
+          For educational purposes only. Not gambling advice.
+        </p>
+        <ul>
+          <li><a href="/export">Export Data to Excel</a></li>
+          <li><a href="/dashboard">View Interactive Dashboard</a></li>
+        </ul>
+      </body>
+    </html>
+    """
+    return render_template_string(html_str)
+
+@app.route("/export")
+def export():
+    filepath = export_data_to_excel()
+    return send_file(filepath, as_attachment=True)
+
+# ------------------ Dash Dashboard ------------------ #
+# Embed a Dash app within the Flask app (accessible at /dashboard)
+dash_app = Dash(__name__, server=app, url_base_pathname='/dashboard/')
+
+def load_dashboard_data():
+    """Load data from the database for visualization."""
+    conn = sqlite3.connect(DB_FILE)
+    df_matches = pd.read_sql("SELECT * FROM Matches", conn)
+    df_odds = pd.read_sql("SELECT * FROM Odds", conn)
+    conn.close()
+    # Example aggregation: count value bets (flagged for home win) per bookmaker
+    df_value_summary = df_odds[df_odds['value_bet_home'] == 1].groupby('bookmaker').size().reset_index(name='value_bet_count')
+    return df_matches, df_odds, df_value_summary
+
+df_matches, df_odds, df_value_summary = load_dashboard_data()
+
+dash_app.layout = html.Div(children=[
+    html.H1("Evolve-Doctore Dashboard", style={'text-align': 'center'}),
+    html.Div("For educational purposes only. Not gambling advice.", style={'font-size': '12px', 'text-align': 'center'}),
+    
+    # Bar chart for Value Bets per Bookmaker
+    html.H2("Value Bets per Bookmaker"),
+    dcc.Graph(
+        id='value-bets-bar',
+        figure=px.bar(df_value_summary, x='bookmaker', y='value_bet_count',
+                      title="Number of Value Bets Flagged per Bookmaker",
+                      labels={"value_bet_count": "Value Bet Count", "bookmaker": "Bookmaker"},
+                      color='value_bet_count', color_continuous_scale='Blues')
+    ),
+    
+    # Histogram for Match Results Distribution
+    html.H2("Match Results Distribution"),
+    dcc.Graph(
+        id='match-results-hist',
+        figure=px.histogram(df_matches, x='home_score',
+                            title="Distribution of Home Scores",
+                            labels={"home_score": "Home Team Score"},
+                            nbins=20)
+    ),
+    
+    # Scatter plot for Model vs. Implied Probabilities (Home Bets)
+    html.H2("Value Bet Scatter: Model vs. Implied Probabilities"),
+    dcc.Graph(
+        id='value-bets-scatter',
+        figure=px.scatter(
+            df_odds[df_odds['value_bet_home'] == 1],
+            x='implied_prob_home', y='model_prob_home',
+            hover_data=['match_id', 'edge_home'],
+            title="Model vs. Implied Probability for Home Bets",
+            labels={"implied_prob_home": "Implied Prob (Home)", "model_prob_home": "Model Prob (Home)"}
+        )
+    )
+])
+
+# ------------------ Run the Application ------------------ #
+if __name__ == '__main__':
+    app.run(debug=True)
